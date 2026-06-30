@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tabibak – Voice / Video call test</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 1.25rem; background: #1a1a2e; color: #eee; min-height: 100vh; }
+    h1 { margin: 0 0 0.5rem; font-size: 1.5rem; color: #fff; }
+    .subtitle { color: #888; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .card { background: #16213e; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; border: 1px solid #0f3460; }
+    .card h2 { margin: 0 0 0.75rem; font-size: 0.95rem; color: #e94560; font-weight: 600; }
+    label { display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: #aaa; }
+    input[type="text"], input[type="password"], select { width: 100%; padding: 0.6rem; border: 1px solid #0f3460; border-radius: 6px; margin-bottom: 0.75rem; background: #1a1a2e; color: #eee; }
+    select { cursor: pointer; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.5rem; }
+    button { padding: 0.55rem 1rem; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 0.9rem; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-connect { background: #0f3460; color: #fff; }
+    .btn-connect:hover:not(:disabled) { background: #1a4a7a; }
+    .btn-load { background: #533483; color: #fff; }
+    .btn-load:hover:not(:disabled) { background: #6b44a3; }
+    .btn-voice { background: #2d6a4f; color: #fff; }
+    .btn-voice:hover:not(:disabled) { background: #40916c; }
+    .btn-video { background: #7b2cbf; color: #fff; }
+    .btn-video:hover:not(:disabled) { background: #9d4edd; }
+    .btn-end { background: #b91c1c; color: #fff; }
+    .btn-end:hover:not(:disabled) { background: #dc2626; }
+    #connectionStatus { font-size: 0.85rem; margin-left: 0.5rem; }
+    #connectionStatus.connected { color: #4ade80; }
+    #connectionStatus.failed { color: #f87171; }
+    #status { margin: 0.5rem 0 0; padding: 0.6rem; background: #0f3460; border-radius: 6px; color: #93c5fd; font-size: 0.85rem; line-height: 1.4; }
+    .video-container { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+    @media (max-width: 500px) { .video-container { grid-template-columns: 1fr; } }
+    .video-box { background: #0f0f1a; border-radius: 8px; overflow: hidden; border: 1px solid #0f3460; }
+    .video-box p { margin: 0; padding: 0.5rem 0.75rem; background: #1a1a2e; color: #94a3b8; font-size: 0.8rem; }
+    .video-box video { width: 100%; height: 180px; display: block; object-fit: cover; background: #000; }
+    .video-box video.voice-only { height: 60px; }
+    .step { font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; }
+  </style>
+</head>
+<body>
+  <h1>Voice &amp; video call test</h1>
+  <p class="subtitle">Test WebRTC calls with SignalR signaling. Use the same conversation ID on both devices.</p>
+
+  <div class="card" style="border-color: #7b2cbf;">
+    <h2 style="color: #c084fc;">📋 Data to enter</h2>
+    <ul style="margin: 0; padding-left: 1.25rem; color: #c4b5fd; font-size: 0.85rem; line-height: 1.6;">
+      <li><strong>API base URL</strong> — Leave empty if this page is at <code>http://localhost:5202/call-test.html</code>. Otherwise use e.g. <code>http://localhost:5202</code> or <code>https://localhost:7238</code>.</li>
+      <li><strong>JWT token</strong> — Get it by logging in: <code>POST /api/Auth/login</code> with body <code>{ "phoneNumber": "1234567890", "password": "StrongPassword123###" }</code>. Copy the <code>token</code> from the response and paste it here.</li>
+      <li><strong>Conversation</strong> — Paste your JWT, click <strong>Load my conversations</strong>, then pick one from the dropdown. Or paste a conversation ID (GUID) if you already have it. <em>Both caller and callee must use the same conversation ID.</em> If the list is empty, create a conversation first: <code>POST /api/chat/conversations</code> with <code>{ "doctorId": "&lt;guid&gt;" }</code> (as patient) or <code>{ "patientId": "&lt;guid&gt;" }</code> (as doctor); you must have an appointment with that user.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>1. Settings</h2>
+    <label>API base URL (empty = same origin)</label>
+    <input type="text" id="apiBaseUrl" placeholder="e.g. http://localhost:5202 or leave empty" />
+    <label>JWT token (from login)</label>
+    <input type="password" id="token" placeholder="Paste your JWT here" />
+    <div class="row">
+      <button id="loadConvsBtn" class="btn-load">Load my conversations</button>
+    </div>
+    <label>Conversation</label>
+    <div class="row">
+      <select id="conversationSelect">
+        <option value="">— Pick or type below —</option>
+      </select>
+    </div>
+    <label>Or paste conversation ID (GUID)</label>
+    <input type="text" id="conversationId" placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000" />
+  </div>
+
+  <div class="card">
+    <h2>2. Connect</h2>
+    <div class="row">
+      <button id="connectBtn" class="btn-connect">Connect SignalR</button>
+      <span id="connectionStatus"></span>
+    </div>
+    <p class="step">You must be a participant in the conversation. Connect on both devices with the same conversation ID.</p>
+  </div>
+
+  <div class="card">
+    <h2>3. Call</h2>
+    <p id="status">Enter JWT and conversation, connect, then start a voice or video call. On the other device: same conversation, connect, and accept when the call arrives.</p>
+    <div class="row">
+      <button id="startVoiceBtn" class="btn-voice" disabled>Voice call</button>
+      <button id="startVideoBtn" class="btn-video" disabled>Video call</button>
+      <button id="endCallBtn" class="btn-end" disabled>End call</button>
+    </div>
+    <div class="video-container">
+      <div class="video-box">
+        <p>You (local)</p>
+        <video id="localVideo" autoplay playsinline muted></video>
+      </div>
+      <div class="video-box">
+        <p>Remote</p>
+        <video id="remoteVideo" autoplay playsinline></video>
+      </div>
+    </div>
+  </div>
+
+  <script>
+(function () {
+  function el(id) { return document.getElementById(id); }
+  var apiBaseUrlInput = el('apiBaseUrl');
+  var tokenInput = el('token');
+  var conversationSelect = el('conversationSelect');
+  var conversationIdInput = el('conversationId');
+  var loadConvsBtn = el('loadConvsBtn');
+  var connectBtn = el('connectBtn');
+  var connectionStatus = el('connectionStatus');
+  var startVoiceBtn = el('startVoiceBtn');
+  var startVideoBtn = el('startVideoBtn');
+  var endCallBtn = el('endCallBtn');
+  var statusEl = el('status');
+  var localVideo = el('localVideo');
+  var remoteVideo = el('remoteVideo');
+
+  function getBaseUrl() {
+    var url = (apiBaseUrlInput.value || '').trim();
+    if (url) return url.replace(/\/$/, '');
+    return window.location.origin;
+  }
+
+  function setStatus(msg) { statusEl.textContent = msg; }
+  function getToken() { return tokenInput.value.trim(); }
+  function getConversationId() {
+    var fromSelect = conversationSelect.value && conversationSelect.value.trim();
+    if (fromSelect) return fromSelect;
+    return conversationIdInput.value.trim();
+  }
+
+  var connection = null;
+  var webrtcConfig = null;
+  var peerConnection = null;
+  var localStream = null;
+
+  function buildIceServers(config) {
+    var servers = [{ urls: config.stunUrl || 'stun:stun.l.google.com:19302' }];
+    if (config.turnUrl) {
+      servers.push({
+        urls: config.turnUrl,
+        username: config.turnUsername || undefined,
+        credential: config.turnCredential || undefined
+      });
+    }
+    return servers;
+  }
+
+  function fetchWebRtcConfig() {
+    var token = getToken();
+    if (!token) return Promise.reject(new Error('JWT required'));
+    var base = getBaseUrl();
+    return fetch(base + '/api/chat/webrtc/config', {
+      headers: { Authorization: 'Bearer ' + token }
+    }).then(function (res) {
+      if (!res.ok) throw new Error('Config failed: ' + res.status);
+      return res.json();
+    });
+  }
+
+  loadConvsBtn.addEventListener('click', function () {
+    var token = getToken();
+    if (!token) { setStatus('Enter JWT first, then click Load my conversations.'); return; }
+    var base = getBaseUrl();
+    loadConvsBtn.disabled = true;
+    setStatus('Loading conversations…');
+    fetch(base + '/api/chat/conversations', { headers: { Authorization: 'Bearer ' + token } })
+      .then(function (res) {
+        if (!res.ok) throw new Error('Failed: ' + res.status);
+        return res.json();
+      })
+      .then(function (list) {
+        conversationSelect.innerHTML = '<option value="">— Pick or type below —</option>';
+        (list || []).forEach(function (c) {
+          var opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = (c.doctorName || 'Doctor') + ' / ' + (c.patientName || 'Patient') + ' (' + c.id + ')';
+          conversationSelect.appendChild(opt);
+        });
+        setStatus('Loaded ' + (list ? list.length : 0) + ' conversation(s). Pick one and connect.');
+      })
+      .catch(function (err) {
+        setStatus('Error: ' + err.message);
+      })
+      .finally(function () { loadConvsBtn.disabled = false; });
+  });
+
+  conversationSelect.addEventListener('change', function () {
+    if (conversationSelect.value) conversationIdInput.value = conversationSelect.value;
+  });
+
+  connectBtn.addEventListener('click', function () {
+    var token = getToken();
+    var convId = getConversationId();
+    if (!token || !convId) {
+      setStatus('Enter JWT and conversation ID (or load conversations and pick one).');
+      return;
+    }
+    connectionStatus.textContent = '';
+    connectionStatus.className = '';
+    setStatus('Connecting…');
+    fetchWebRtcConfig()
+      .then(function (config) {
+        webrtcConfig = config;
+        var base = getBaseUrl();
+        var hubUrl = base + '/hubs/chat?access_token=' + encodeURIComponent(token);
+        connection = new signalR.HubConnectionBuilder()
+          .withUrl(hubUrl, { skipNegotiation: true, transport: signalR.HttpTransportType.WebSockets })
+          .withAutomaticReconnect()
+          .build();
+
+        connection.on('WebRtcOffer', function (fromUserId, sdp) {
+          handleRemoteOffer(convId, fromUserId, sdp);
+        });
+        connection.on('WebRtcAnswer', function (fromUserId, sdp) {
+          handleRemoteAnswer(sdp);
+        });
+        connection.on('WebRtcIceCandidate', function (fromUserId, candidate) {
+          handleRemoteIceCandidate(candidate);
+        });
+
+        return connection.start();
+      })
+      .then(function () {
+        connectionStatus.textContent = 'Connected';
+        connectionStatus.className = 'connected';
+        startVoiceBtn.disabled = false;
+        startVideoBtn.disabled = false;
+        setStatus('Connected. Start a voice or video call. On the other device: same conversation ID, connect; when you start a call here, they will receive it and can answer.');
+      })
+      .catch(function (err) {
+        setStatus('Error: ' + err.message);
+        connectionStatus.textContent = 'Failed';
+        connectionStatus.className = 'failed';
+      });
+  });
+
+  function handleRemoteOffer(convId, fromUserId, sdp) {
+    if (peerConnection) return;
+    setStatus('Incoming call from ' + fromUserId + '…');
+    startCallAsCallee(convId, sdp);
+  }
+
+  function handleRemoteAnswer(sdp) {
+    if (!peerConnection) return;
+    var answer = JSON.parse(sdp);
+    peerConnection.setRemoteDescription(new RTCSessionDescription(answer))
+      .then(function () { setStatus('Call connected.'); })
+      .catch(function (e) { setStatus('Answer error: ' + e.message); });
+  }
+
+  function handleRemoteIceCandidate(candidate) {
+    if (!peerConnection) return;
+    var ice = JSON.parse(candidate);
+    peerConnection.addIceCandidate(new RTCIceCandidate(ice)).catch(function (e) {
+      setStatus('ICE error: ' + e.message);
+    });
+  }
+
+  function startCallAsCaller(conversationId, video) {
+    var iceServers = buildIceServers(webrtcConfig);
+    peerConnection = new RTCPeerConnection({ iceServers: iceServers });
+
+    var mediaConstraints = video ? { video: true, audio: true } : { audio: true };
+    return navigator.mediaDevices.getUserMedia(mediaConstraints).then(function (stream) {
+      localStream = stream;
+      localStream.getTracks().forEach(function (track) { peerConnection.addTrack(track, localStream); });
+      localVideo.srcObject = localStream;
+      localVideo.classList.toggle('voice-only', !video);
+
+      peerConnection.ontrack = function (e) {
+        if (e.streams && e.streams[0]) remoteVideo.srcObject = e.streams[0];
+        else remoteVideo.srcObject = new MediaStream([e.track]);
+      };
+      peerConnection.onicecandidate = function (e) {
+        if (e.candidate) connection.invoke('WebRtcIceCandidate', conversationId, JSON.stringify(e.candidate));
+      };
+      peerConnection.onconnectionstatechange = function () {
+        if (peerConnection && (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected'))
+          setStatus('Connection: ' + peerConnection.connectionState);
+      };
+
+      return peerConnection.createOffer();
+    }).then(function (offer) {
+      return peerConnection.setLocalDescription(offer);
+    }).then(function () {
+      return connection.invoke('WebRtcOffer', conversationId, JSON.stringify(peerConnection.localDescription));
+    }).then(function () {
+      endCallBtn.disabled = false;
+      setStatus('Calling… waiting for answer.');
+    }).catch(function (err) {
+      setStatus('Error: ' + err.message);
+      endCall();
+    });
+  }
+
+  function startCallAsCallee(conversationId, sdp) {
+    var offer = JSON.parse(sdp);
+    var iceServers = buildIceServers(webrtcConfig);
+    peerConnection = new RTCPeerConnection({ iceServers: iceServers });
+
+    return navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(function (stream) {
+      localStream = stream;
+      localStream.getTracks().forEach(function (track) { peerConnection.addTrack(track, localStream); });
+      localVideo.srcObject = localStream;
+      localVideo.classList.remove('voice-only');
+
+      peerConnection.ontrack = function (e) {
+        if (e.streams && e.streams[0]) remoteVideo.srcObject = e.streams[0];
+        else remoteVideo.srcObject = new MediaStream([e.track]);
+      };
+      peerConnection.onicecandidate = function (e) {
+        if (e.candidate) connection.invoke('WebRtcIceCandidate', conversationId, JSON.stringify(e.candidate));
+      };
+
+      return peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+    }).then(function () {
+      return peerConnection.createAnswer();
+    }).then(function (answer) {
+      return peerConnection.setLocalDescription(answer);
+    }).then(function () {
+      return connection.invoke('WebRtcAnswer', conversationId, JSON.stringify(peerConnection.localDescription));
+    }).then(function () {
+      endCallBtn.disabled = false;
+      setStatus('Call connected.');
+    }).catch(function (err) {
+      setStatus('Error: ' + err.message);
+      endCall();
+    });
+  }
+
+  function endCall() {
+    if (localStream) {
+      localStream.getTracks().forEach(function (t) { t.stop(); });
+      localStream = null;
+    }
+    localVideo.srcObject = null;
+    remoteVideo.srcObject = null;
+    localVideo.classList.remove('voice-only');
+    if (peerConnection) {
+      peerConnection.close();
+      peerConnection = null;
+    }
+    endCallBtn.disabled = true;
+    setStatus('Call ended.');
+  }
+
+  startVoiceBtn.addEventListener('click', function () {
+    var convId = getConversationId();
+    if (!connection || connection.state !== 'Connected' || !convId) {
+      setStatus('Connect SignalR and set conversation ID first.');
+      return;
+    }
+    startCallAsCaller(convId, false);
+  });
+
+  startVideoBtn.addEventListener('click', function () {
+    var convId = getConversationId();
+    if (!connection || connection.state !== 'Connected' || !convId) {
+      setStatus('Connect SignalR and set conversation ID first.');
+      return;
+    }
+    startCallAsCaller(convId, true);
+  });
+
+  endCallBtn.addEventListener('click', endCall);
+})();
+  </script>
+</body>
+</html>
