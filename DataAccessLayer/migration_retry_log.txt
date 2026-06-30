@@ -1,0 +1,10 @@
+System.IndexOutOfRangeException: Index was outside the bounds of the array.
+   at Microsoft.EntityFrameworkCore.Tools.RootCommand.<>c.<Execute>b__12_0(String a)
+   at System.Linq.Enumerable.TakeWhileIterator[TSource](IEnumerable`1 source, Func`2 predicate)+MoveNext()
+   at System.Collections.Generic.List`1..ctor(IEnumerable`1 collection)
+   at System.Linq.Enumerable.ToList[TSource](IEnumerable`1 source)
+   at Microsoft.EntityFrameworkCore.Tools.RootCommand.Execute(String[] _)
+   at Microsoft.EntityFrameworkCore.Tools.Commands.CommandBase.<>c__DisplayClass0_0.<Configure>b__0(String[] args)
+   at Microsoft.DotNet.Cli.CommandLine.CommandLineApplication.Execute(String[] args)
+   at Microsoft.EntityFrameworkCore.Tools.Program.Main(String[] args)
+Index was outside the bounds of the array.
